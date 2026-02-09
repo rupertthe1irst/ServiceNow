@@ -55,4 +55,16 @@ for row in rows:
         fontsize = max(6, min(9, scaled_w * 0.4))
         ax.text(x_pos + scaled_w / 2, y_pos + box_h / 2, label,
                 ha='center', va='center', fontsize=fontsize, fontweight='bold', color='white',
-                wrap
+                wrap=True)
+        x_pos += scaled_w
+    y_pos += box_h
+
+ax.set_xlim(0, max_w)
+ax.set_ylim(0, y_pos)
+ax.axis('off')
+ax.set_title('Top 20 Call Type × Service Details Combinations', fontsize=14, fontweight='bold', pad=15)
+
+patches = [mpatches.Patch(color=color_map[t], label=t) for t in types]
+ax.legend(handles=patches, loc='center left', bbox_to_anchor=(1, 0.5), fontsize=9, frameon=False, title='Call Type')
+plt.tight_layout()
+plt.show()
