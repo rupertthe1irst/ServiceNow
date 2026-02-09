@@ -1,0 +1,28 @@
+import matplotlib.pyplot as plt
+import matplotlib
+import pandas as pd
+import squarify
+
+matplotlib.use('Agg')
+
+df = dataset.copy()
+df = df.dropna(subset=['Call_Type', 'Service_Details'])
+
+# Top 20 combos by volume
+grouped = df.groupby(['Call_Type', 'Service_Details']).size().reset_index(name='Count')
+grouped = grouped.nlargest(20, 'Count')
+grouped['Label'] = grouped['Service_Details'].str[:25] + '\n(' + grouped['Call_Type'].str[:15] + ')\n' + grouped['Count'].astype(str)
+
+# Color by Call_Type
+types = grouped['Call_Type'].unique()
+cmap = plt.cm.get_cmap('tab20', len(types))
+color_map = {t: cmap(i) for i, t in enumerate(types)}
+colors = [color_map[t] for t in grouped['Call_Type']]
+
+fig, ax = plt.subplots(figsize=(12, 7))
+squarify.plot(sizes=grouped['Count'], label=grouped['Label'], color=colors, alpha=0.85, ax=ax,
+              text_kwargs={'fontsize': 8, 'fontweight': 'bold', 'color': 'white'})
+ax.set_title('Top 20 Call Type × Service Details Combinations', fontsize=14, fontweight='bold', pad=15)
+ax.axis('off')
+plt.tight_layout()
+plt.show()
