@@ -1,18 +1,151 @@
 import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.patches as mpatches
+import matplotlib.gridspec as gridspec
 import pandas as pd
+import numpy as np
 
 matplotlib.use('Agg')
 
 df = dataset.copy()
 df['Created'] = pd.to_datetime(df['Created'], errors='coerce')
+df = df.dropna(subset=['Created', 'Call_Type'])
 
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.axis('off')
+# Add 5 hours if Power BI is converting EST to UTC — remove this line if not needed
+df['Created'] = df['Created'] + pd.Timedelta(hours=5)
 
-sample = df['Created'].dropna().head(10).astype(str).tolist()
-text = "Raw Created values Power BI is passing:\n\n" + "\n".join(sample)
-ax.text(0.05, 0.95, text, transform=ax.transAxes, fontsize=11, verticalalignment='top', fontfamily='monospace')
+df['Hour'] = df['Created'].dt.hour
+df['DayOfWeek'] = df['Created'].dt.dayofweek
+df['DayName'] = df['Created'].dt.day_name()
+df['Month'] = df['Created'].dt.to_period('M').astype(str)
+df['Week'] = df['Created'].dt.isocalendar().week.astype(int)
+df['Date'] = df['Created'].dt.date
 
-plt.tight_layout()
+top_types = df['Call_Type'].value_counts().head(6).index.tolist()
+colors_list = ['#e63946', '#457b9d', '#2a9d8f', '#e9c46a', '#f4a261', '#264653']
+color_map = {t: colors_list[i] for i, t in enumerate(top_types)}
+
+fig = plt.figure(figsize=(16, 14), facecolor='#0d1117')
+gs = gridspec.GridSpec(3, 2, hspace=0.4, wspace=0.3, height_ratios=[1.2, 1, 1])
+
+# ── STYLE HELPER ──
+def style_ax(ax, title):
+    ax.set_facecolor('#0d1117')
+    ax.set_title(title, fontsize=12, fontweight='bold', color='white', pad=12)
+    ax.tick_params(colors='#8b949e', labelsize=8)
+    for spine in ax.spines.values():
+        spine.set_color('#30363d')
+
+# ══════════════════════════════════════════════
+# 1. TOP BANNER — Stacked Area: Monthly Volume by Call Type
+# ══════════════════════════════════════════════
+ax1 = fig.add_subplot(gs[0, :])
+monthly = df[df['Call_Type'].isin(top_types)].groupby(['Month', 'Call_Type']).size().unstack(fill_value=0)
+monthly = monthly.reindex(columns=top_types, fill_value=0)
+months = monthly.index.tolist()
+x = range(len(months))
+
+ax1.stackplot(x, *[monthly[t].values for t in top_types],
+              colors=[color_map[t] for t in top_types], alpha=0.85)
+ax1.set_xticks(x)
+ax1.set_xticklabels(months, rotation=45, ha='right', fontsize=7, color='#8b949e')
+ax1.set_xlim(0, len(months) - 1)
+style_ax(ax1, '📈 Monthly Call Volume Trend by Type')
+ax1.set_ylabel('Calls', color='#8b949e', fontsize=9)
+
+# ══════════════════════════════════════════════
+# 2. HEATMAP — Hour x Day of Week
+# ══════════════════════════════════════════════
+ax2 = fig.add_subplot(gs[1, 0])
+heat = df.groupby(['DayOfWeek', 'Hour']).size().reset_index(name='Calls')
+pivot = heat.pivot(index='DayOfWeek', columns='Hour', values='Calls').fillna(0)
+pivot = pivot.reindex(range(7)).fillna(0)
+day_labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+im = ax2.imshow(pivot.values, cmap='hot', aspect='auto', interpolation='gaussian')
+ax2.set_xticks(range(0, 24, 2))
+ax2.set_xticklabels([f'{h}' for h in range(0, 24, 2)], fontsize=7, color='#8b949e')
+ax2.set_yticks(range(7))
+ax2.set_yticklabels(day_labels, fontsize=9, color='#8b949e', fontweight='bold')
+style_ax(ax2, '🔥 Heatmap — Day × Hour')
+
+# ══════════════════════════════════════════════
+# 3. RADIAL / POLAR — Hourly Distribution
+# ══════════════════════════════════════════════
+ax3 = fig.add_subplot(gs[1, 1], projection='polar')
+ax3.set_facecolor('#0d1117')
+hourly = df.groupby('Hour').size()
+hours_full = pd.Series(0, index=range(24))
+hours_full.update(hourly)
+theta = np.linspace(0, 2 * np.pi, 24, endpoint=False)
+width = 2 * np.pi / 24
+
+bars = ax3.bar(theta, hours_full.values, width=width * 0.9, alpha=0.85)
+max_val = hours_full.max()
+for bar, val in zip(bars, hours_full.values):
+    intensity = val / max_val if max_val > 0 else 0
+    bar.set_facecolor(plt.cm.cool(intensity))
+    bar.set_edgecolor('#0d1117')
+
+ax3.set_xticks(theta)
+ax3.set_xticklabels([f'{h}:00' for h in range(24)], fontsize=6, color='#8b949e')
+ax3.set_yticks([])
+ax3.set_title('🕐 Hourly Call Distribution (Radial)', fontsize=12, fontweight='bold',
+              color='white', pad=20)
+ax3.spines['polar'].set_color('#30363d')
+
+# ══════════════════════════════════════════════
+# 4. LOLLIPOP — Top Call Types Ranked
+# ══════════════════════════════════════════════
+ax4 = fig.add_subplot(gs[2, 0])
+type_counts = df['Call_Type'].value_counts().head(10).sort_values()
+y_pos = range(len(type_counts))
+
+ax4.hlines(y=y_pos, xmin=0, xmax=type_counts.values, color='#457b9d', alpha=0.6, linewidth=2)
+ax4.scatter(type_counts.values, y_pos, color='#e63946', s=80, zorder=5, edgecolors='white', linewidth=1.5)
+
+for i, (name, val) in enumerate(type_counts.items()):
+    ax4.text(val + type_counts.max() * 0.02, i, f'{val:,}', va='center', fontsize=8, color='#e63946', fontweight='bold')
+
+ax4.set_yticks(y_pos)
+ax4.set_yticklabels([str(t)[:30] for t in type_counts.index], fontsize=8, color='#8b949e')
+style_ax(ax4, '🎯 Top 10 Call Types')
+
+# ══════════════════════════════════════════════
+# 5. SPARKLINE GRID — Weekly trend per top Call Type
+# ══════════════════════════════════════════════
+ax5 = fig.add_subplot(gs[2, 1])
+ax5.set_facecolor('#0d1117')
+ax5.axis('off')
+style_ax(ax5, '⚡ Weekly Trend per Call Type')
+
+weekly = df[df['Call_Type'].isin(top_types)].groupby([pd.Grouper(key='Created', freq='W'), 'Call_Type']).size().reset_index(name='Count')
+
+n = len(top_types)
+for i, ct in enumerate(top_types):
+    sub = weekly[weekly['Call_Type'] == ct].sort_values('Created')
+    if len(sub) < 2:
+        continue
+    inset = ax5.inset_axes([0.05, 1 - (i + 1) / n + 0.02, 0.55, (1 / n) - 0.04])
+    inset.set_facecolor('#0d1117')
+    inset.fill_between(range(len(sub)), sub['Count'].values, alpha=0.4, color=color_map[ct])
+    inset.plot(range(len(sub)), sub['Count'].values, color=color_map[ct], linewidth=1.5)
+    inset.set_yticks([])
+    inset.set_xticks([])
+    for spine in inset.spines.values():
+        spine.set_visible(False)
+    inset.text(-0.5, sub['Count'].mean(), ct[:20], fontsize=7, fontweight='bold',
+               color=color_map[ct], ha='right', va='center')
+
+# ── MAIN TITLE & LEGEND ──
+total = len(df)
+fig.suptitle(f'CONTACT CENTER CALL ANALYTICS DASHBOARD  —  {total:,} Total Calls',
+             fontsize=16, fontweight='bold', color='white', y=0.98)
+
+legend_patches = [mpatches.Patch(color=color_map[t], label=t) for t in top_types]
+fig.legend(handles=legend_patches, loc='upper right', fontsize=8, frameon=True,
+           facecolor='#161b22', edgecolor='#30363d', labelcolor='#8b949e',
+           bbox_to_anchor=(0.98, 0.96))
+
+plt.tight_layout(rect=[0, 0, 1, 0.95])
 plt.show()
