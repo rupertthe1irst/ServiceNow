@@ -15,11 +15,15 @@ df = df.dropna(subset=['Created', 'Call_Type'])
 df['Created'] = df['Created'] + pd.Timedelta(hours=5)
 
 # ── FILTER TO 2025+ ──
-df = df[df['Created'] >= '2025-01-01']
+df = df[df['Created'] >= '2025-01-01'].copy()
+
+# Clean Call_Type — strip whitespace, drop blanks
+df['Call_Type'] = df['Call_Type'].astype(str).str.strip()
+df = df[df['Call_Type'] != '']
 
 df['Hour'] = df['Created'].dt.hour
 df['DayOfWeek'] = df['Created'].dt.dayofweek
-df['Month'] = df['Created'].dt.to_period('M').astype(str)
+df['YearMonth'] = df['Created'].dt.strftime('%Y-%m')
 
 top_types = df['Call_Type'].value_counts().head(6).index.tolist()
 palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
@@ -41,16 +45,21 @@ def style_ax(ax, title):
 # 1. STACKED AREA — Monthly Volume by Call Type
 # ══════════════════════════════════════════════
 ax1 = fig.add_subplot(gs[0, :])
-monthly = df[df['Call_Type'].isin(top_types)].groupby(['Month', 'Call_Type']).size().unstack(fill_value=0)
-monthly = monthly.reindex(columns=top_types, fill_value=0)
+df_top = df[df['Call_Type'].isin(top_types)]
+monthly = df_top.groupby(['YearMonth', 'Call_Type']).size().unstack(fill_value=0)
+for t in top_types:
+    if t not in monthly.columns:
+        monthly[t] = 0
+monthly = monthly[top_types].sort_index()
 months = monthly.index.tolist()
-x = range(len(months))
 
-ax1.stackplot(x, *[monthly[t].values for t in top_types],
-              colors=[color_map[t] for t in top_types], alpha=0.8)
-ax1.set_xticks(x)
-ax1.set_xticklabels(months, rotation=45, ha='right', fontsize=9)
-ax1.set_xlim(0, len(months) - 1)
+if len(months) > 0:
+    x = range(len(months))
+    arrays = [monthly[t].values.astype(float) for t in top_types]
+    ax1.stackplot(x, *arrays, colors=[color_map[t] for t in top_types], alpha=0.8)
+    ax1.set_xticks(list(x))
+    ax1.set_xticklabels(months, rotation=45, ha='right', fontsize=9)
+    ax1.set_xlim(0, len(months) - 1)
 style_ax(ax1, 'Monthly Call Volume Trend by Type')
 ax1.set_ylabel('Calls', fontsize=10, color='#333333')
 
@@ -60,7 +69,7 @@ ax1.set_ylabel('Calls', fontsize=10, color='#333333')
 ax2 = fig.add_subplot(gs[1, 0])
 heat = df.groupby(['DayOfWeek', 'Hour']).size().reset_index(name='Calls')
 pivot = heat.pivot(index='DayOfWeek', columns='Hour', values='Calls').fillna(0)
-pivot = pivot.reindex(range(7)).fillna(0)
+pivot = pivot.reindex(index=range(7), columns=range(24), fill_value=0)
 day_labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 im = ax2.imshow(pivot.values, cmap='YlOrRd', aspect='auto', interpolation='nearest')
@@ -69,13 +78,14 @@ for i in range(pivot.shape[0]):
         val = int(pivot.values[i, j])
         if val > 0:
             color = 'white' if val > pivot.values.max() * 0.65 else '#333333'
-            ax2.text(j, i, f'{val:,}', ha='center', va='center', fontsize=6, fontweight='bold', color=color)
+            ax2.text(j, i, f'{val:,}', ha='center', va='center', fontsize=6,
+                     fontweight='bold', color=color)
 
 ax2.set_xticks(range(0, 24, 2))
 ax2.set_xticklabels([f'{h}:00' for h in range(0, 24, 2)], fontsize=8)
 ax2.set_yticks(range(7))
 ax2.set_yticklabels(day_labels, fontsize=10, fontweight='bold')
-ax2.set_title('Heatmap — Day × Hour', fontsize=13, fontweight='bold', color='#1a1a1a', pad=14)
+ax2.set_title('Heatmap — Day x Hour', fontsize=13, fontweight='bold', color='#1a1a1a', pad=14)
 plt.colorbar(im, ax=ax2, shrink=0.8, pad=0.03)
 
 # ══════════════════════════════════════════════
@@ -83,16 +93,14 @@ plt.colorbar(im, ax=ax2, shrink=0.8, pad=0.03)
 # ══════════════════════════════════════════════
 ax3 = fig.add_subplot(gs[1, 1], projection='polar')
 ax3.set_facecolor('#fafafa')
-hourly = df.groupby('Hour').size()
-hours_full = pd.Series(0, index=range(24))
-hours_full.update(hourly)
+hourly = df.groupby('Hour').size().reindex(range(24), fill_value=0)
 theta = np.linspace(0, 2 * np.pi, 24, endpoint=False)
 width = 2 * np.pi / 24
 
-bars = ax3.bar(theta, hours_full.values, width=width * 0.9, alpha=0.85)
-max_val = hours_full.max()
-for bar, val in zip(bars, hours_full.values):
-    intensity = val / max_val if max_val > 0 else 0
+bars = ax3.bar(theta, hourly.values, width=width * 0.9, alpha=0.85)
+max_val = hourly.max() if hourly.max() > 0 else 1
+for bar, val in zip(bars, hourly.values):
+    intensity = val / max_val
     bar.set_facecolor(plt.cm.Blues(0.3 + intensity * 0.7))
     bar.set_edgecolor('white')
     bar.set_linewidth(0.5)
@@ -118,7 +126,7 @@ for i, (name, val) in enumerate(type_counts.items()):
     ax4.text(val + type_counts.max() * 0.02, i, f'{val:,}', va='center', fontsize=9,
              color='#333333', fontweight='bold')
 
-ax4.set_yticks(y_pos)
+ax4.set_yticks(list(y_pos))
 ax4.set_yticklabels([str(t)[:35] for t in type_counts.index], fontsize=9, color='#333333')
 style_ax(ax4, 'Top 10 Call Types by Volume')
 
@@ -130,12 +138,9 @@ ax5.set_facecolor('white')
 ax5.axis('off')
 ax5.set_title('Weekly Trend by Call Type', fontsize=13, fontweight='bold', color='#1a1a1a', pad=14)
 
-weekly = df[df['Call_Type'].isin(top_types)].groupby(
-    [pd.Grouper(key='Created', freq='W'), 'Call_Type']).size().reset_index(name='Count')
-
 n = len(top_types)
 for i, ct in enumerate(top_types):
-    sub = weekly[weekly['Call_Type'] == ct].sort_values('Created')
+    sub = df_top[df_top['Call_Type'] == ct].set_index('Created').resample('W').size().reset_index(name='Count')
     if len(sub) < 2:
         continue
     inset = ax5.inset_axes([0.18, 1 - (i + 1) / n + 0.02, 0.75, (1 / n) - 0.04])
@@ -148,14 +153,13 @@ for i, ct in enumerate(top_types):
         spine.set_color('#eeeeee')
     inset.text(-1, sub['Count'].mean(), ct[:22], fontsize=8, fontweight='bold',
                color=color_map[ct], ha='right', va='center')
-    # Add latest value
     inset.text(len(sub) - 1, sub['Count'].values[-1], f' {sub["Count"].values[-1]:,}',
                fontsize=7, color='#666666', va='center')
 
 # ── TITLE & LEGEND ──
 total = len(df)
-date_range = f"{df['Created'].min().strftime('%b %Y')} – {df['Created'].max().strftime('%b %Y')}"
-fig.suptitle(f'Contact Center Analytics Dashboard  —  {total:,} Calls  ({date_range})',
+date_range = f"{df['Created'].min().strftime('%b %Y')} - {df['Created'].max().strftime('%b %Y')}"
+fig.suptitle(f'Contact Center Analytics Dashboard  |  {total:,} Calls  ({date_range})',
              fontsize=15, fontweight='bold', color='#1a1a1a', y=0.99)
 
 legend_patches = [mpatches.Patch(color=color_map[t], label=t) for t in top_types]
