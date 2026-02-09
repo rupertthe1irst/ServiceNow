@@ -9,62 +9,36 @@ df = dataset.copy()
 df = df.dropna(subset=['Call_Type', 'Service_Details'])
 
 grouped = df.groupby(['Call_Type', 'Service_Details']).size().reset_index(name='Count')
-grouped = grouped.nlargest(20, 'Count')
-grouped = grouped.sort_values('Count', ascending=False).reset_index(drop=True)
+grouped = grouped.nlargest(25, 'Count').sort_values('Count', ascending=True).reset_index(drop=True)
 
-total = grouped['Count'].sum()
 types = grouped['Call_Type'].unique()
-cmap = plt.cm.get_cmap('tab20', len(types))
+cmap = plt.cm.get_cmap('tab10', len(types))
 color_map = {t: cmap(i) for i, t in enumerate(types)}
+colors = [color_map[t] for t in grouped['Call_Type']]
 
-# Build treemap manually using simple strip layout
-fig, ax = plt.subplots(figsize=(13, 7))
+fig, ax = plt.subplots(figsize=(12, 9))
 
-x, y, row_h = 0, 0, 0
-max_w = 100
-rows = []
-current_row = []
-current_row_w = 0
+bars = ax.barh(range(len(grouped)), grouped['Count'], color=colors, edgecolor='white', height=0.75, alpha=0.9)
 
-for _, r in grouped.iterrows():
-    w = (r['Count'] / total) * max_w * 3.5
-    w = max(w, 8)
-    if current_row_w + w > max_w and current_row:
-        rows.append(current_row)
-        current_row = []
-        current_row_w = 0
-    current_row.append((r, w))
-    current_row_w += w
-if current_row:
-    rows.append(current_row)
+# Labels on bars
+for i, (_, r) in enumerate(grouped.iterrows()):
+    label = r['Service_Details'][:40]
+    if r['Count'] > grouped['Count'].max() * 0.3:
+        ax.text(r['Count'] - grouped['Count'].max() * 0.02, i, f"  {label}  ({r['Count']:,})",
+                va='center', ha='right', fontsize=8, fontweight='bold', color='white')
+    else:
+        ax.text(r['Count'] + grouped['Count'].max() * 0.01, i, f"{label}  ({r['Count']:,})",
+                va='center', ha='left', fontsize=8, fontweight='bold', color='#333333')
 
-y_pos = 0
-box_h = max_w / max(len(rows), 1)
-
-for row in rows:
-    total_w = sum(w for _, w in row)
-    scale = max_w / total_w
-    x_pos = 0
-    for r, w in row:
-        scaled_w = w * scale
-        color = color_map[r['Call_Type']]
-        rect = plt.Rectangle((x_pos, y_pos), scaled_w - 0.3, box_h - 0.3,
-                              facecolor=color, edgecolor='white', linewidth=2, alpha=0.85)
-        ax.add_patch(rect)
-        label = r['Service_Details'][:22] + '\n' + str(r['Count'])
-        fontsize = max(6, min(9, scaled_w * 0.4))
-        ax.text(x_pos + scaled_w / 2, y_pos + box_h / 2, label,
-                ha='center', va='center', fontsize=fontsize, fontweight='bold', color='white',
-                wrap=True)
-        x_pos += scaled_w
-    y_pos += box_h
-
-ax.set_xlim(0, max_w)
-ax.set_ylim(0, y_pos)
-ax.axis('off')
-ax.set_title('Top 20 Call Type × Service Details Combinations', fontsize=14, fontweight='bold', pad=15)
+ax.set_yticks([])
+ax.set_xlabel('Number of Calls', fontsize=11, fontweight='bold')
+ax.set_title('Top 25 Service Details by Volume (colored by Call Type)', fontsize=14, fontweight='bold', pad=20)
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.spines['left'].set_visible(False)
 
 patches = [mpatches.Patch(color=color_map[t], label=t) for t in types]
-ax.legend(handles=patches, loc='center left', bbox_to_anchor=(1, 0.5), fontsize=9, frameon=False, title='Call Type')
+ax.legend(handles=patches, loc='lower right', fontsize=9, frameon=True, facecolor='white', edgecolor='#cccccc', title='Call Type', title_fontsize=10)
+
 plt.tight_layout()
 plt.show()
