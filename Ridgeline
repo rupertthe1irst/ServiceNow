@@ -1,0 +1,35 @@
+import matplotlib.pyplot as plt
+import matplotlib
+import pandas as pd
+import numpy as np
+
+matplotlib.use('Agg')
+
+df = dataset.copy()
+df['Created'] = pd.to_datetime(df['Created'], errors='coerce')
+df = df.dropna(subset=['Created', 'Call_Type'])
+df['Hour'] = df['Created'].dt.hour
+
+top_types = df['Call_Type'].value_counts().head(8).index.tolist()
+df = df[df['Call_Type'].isin(top_types)]
+
+fig, axes = plt.subplots(len(top_types), 1, figsize=(10, len(top_types) * 1.2), sharex=True)
+cmap = plt.cm.get_cmap('coolwarm', len(top_types))
+
+for i, ct in enumerate(top_types):
+    subset = df[df['Call_Type'] == ct]
+    counts, _ = np.histogram(subset['Hour'], bins=range(25))
+    axes[i].fill_between(range(24), counts, alpha=0.7, color=cmap(i))
+    axes[i].plot(range(24), counts, color=cmap(i), linewidth=1.5)
+    axes[i].set_ylabel('')
+    axes[i].set_yticks([])
+    axes[i].text(-0.5, max(counts) * 0.5, ct[:30], fontsize=8, fontweight='bold', ha='right', va='center')
+    axes[i].spines['top'].set_visible(False)
+    axes[i].spines['right'].set_visible(False)
+    axes[i].spines['left'].set_visible(False)
+
+axes[-1].set_xlabel('Hour of Day', fontsize=10)
+axes[-1].set_xticks(range(0, 24, 2))
+fig.suptitle('Call Volume by Hour — Top Call Types', fontsize=13, fontweight='bold', y=1.02)
+plt.tight_layout()
+plt.show()
