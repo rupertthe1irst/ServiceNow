@@ -1,44 +1,46 @@
 import matplotlib.pyplot as plt
 import matplotlib
-import matplotlib.patches as mpatches
 import pandas as pd
+import numpy as np
 
 matplotlib.use('Agg')
 
 df = dataset.copy()
-df = df.dropna(subset=['Call_Type', 'Service_Details'])
+df['Created'] = pd.to_datetime(df['Created'], errors='coerce')
+df = df.dropna(subset=['Created', 'Call_Type'])
 
-grouped = df.groupby(['Call_Type', 'Service_Details']).size().reset_index(name='Count')
-grouped = grouped.nlargest(25, 'Count').sort_values('Count', ascending=True).reset_index(drop=True)
+df['Hour'] = df['Created'].dt.hour
+df['DayOfWeek'] = df['Created'].dt.dayofweek
+df['DayName'] = df['Created'].dt.day_name()
 
-types = grouped['Call_Type'].unique()
-cmap = plt.cm.get_cmap('tab10', len(types))
-color_map = {t: cmap(i) for i, t in enumerate(types)}
-colors = [color_map[t] for t in grouped['Call_Type']]
+# Heatmap grid: day of week x hour
+heat = df.groupby(['DayOfWeek', 'Hour']).size().reset_index(name='Calls')
+pivot = heat.pivot(index='DayOfWeek', columns='Hour', values='Calls').fillna(0)
+pivot = pivot.reindex(range(7)).fillna(0)
 
-fig, ax = plt.subplots(figsize=(12, 9))
+day_labels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
-bars = ax.barh(range(len(grouped)), grouped['Count'], color=colors, edgecolor='white', height=0.75, alpha=0.9)
+fig, ax = plt.subplots(figsize=(14, 6))
+im = ax.imshow(pivot.values, cmap='YlOrRd', aspect='auto', interpolation='nearest')
 
-# Labels on bars
-for i, (_, r) in enumerate(grouped.iterrows()):
-    label = r['Service_Details'][:40]
-    if r['Count'] > grouped['Count'].max() * 0.3:
-        ax.text(r['Count'] - grouped['Count'].max() * 0.02, i, f"  {label}  ({r['Count']:,})",
-                va='center', ha='right', fontsize=8, fontweight='bold', color='white')
-    else:
-        ax.text(r['Count'] + grouped['Count'].max() * 0.01, i, f"{label}  ({r['Count']:,})",
-                va='center', ha='left', fontsize=8, fontweight='bold', color='#333333')
+# Annotate each cell
+for i in range(pivot.shape[0]):
+    for j in range(pivot.shape[1]):
+        val = int(pivot.values[i, j])
+        if val > 0:
+            color = 'white' if val > pivot.values.max() * 0.6 else '#333333'
+            ax.text(j, i, f'{val:,}', ha='center', va='center', fontsize=7, fontweight='bold', color=color)
 
-ax.set_yticks([])
-ax.set_xlabel('Number of Calls', fontsize=11, fontweight='bold')
-ax.set_title('Top 25 Service Details by Volume (colored by Call Type)', fontsize=14, fontweight='bold', pad=20)
-ax.spines['top'].set_visible(False)
-ax.spines['right'].set_visible(False)
-ax.spines['left'].set_visible(False)
+ax.set_xticks(range(24))
+ax.set_xticklabels([f'{h}:00' for h in range(24)], fontsize=8, rotation=45, ha='right')
+ax.set_yticks(range(7))
+ax.set_yticklabels(day_labels, fontsize=10, fontweight='bold')
 
-patches = [mpatches.Patch(color=color_map[t], label=t) for t in types]
-ax.legend(handles=patches, loc='lower right', fontsize=9, frameon=True, facecolor='white', edgecolor='#cccccc', title='Call Type', title_fontsize=10)
+ax.set_xlabel('Hour of Day', fontsize=11, fontweight='bold')
+ax.set_title(f'Call Volume Heatmap — Day of Week × Hour\n({len(df):,} Total Calls)', fontsize=14, fontweight='bold', pad=15)
+
+cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+cbar.set_label('Number of Calls', fontsize=10)
 
 plt.tight_layout()
 plt.show()
