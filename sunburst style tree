@@ -15,11 +15,11 @@ df = df.dropna(subset=['Created', 'Call_Type'])
 df['Created'] = df['Created'] + pd.Timedelta(hours=5)
 
 # ── FILTER TO 2025+ ──
-df = df[df['Created'] >= '2025-01-01'].copy()
+df = df[df['Created'].dt.year >= 2025].copy()
 
-# Clean Call_Type — strip whitespace, drop blanks
+# Clean Call_Type
 df['Call_Type'] = df['Call_Type'].astype(str).str.strip()
-df = df[df['Call_Type'] != '']
+df = df[(df['Call_Type'] != '') & (df['Call_Type'] != 'nan')]
 
 df['Hour'] = df['Created'].dt.hour
 df['DayOfWeek'] = df['Created'].dt.dayofweek
@@ -41,11 +41,19 @@ def style_ax(ax, title):
     for spine in ['bottom', 'left']:
         ax.spines[spine].set_color('#cccccc')
 
+# ── Date range for title ──
+min_date = df['Created'].min()
+max_date = df['Created'].max()
+if pd.notna(min_date) and pd.notna(max_date):
+    date_range = f"{min_date.strftime('%b %Y')} - {max_date.strftime('%b %Y')}"
+else:
+    date_range = "2025+"
+
 # ══════════════════════════════════════════════
 # 1. STACKED AREA — Monthly Volume by Call Type
 # ══════════════════════════════════════════════
 ax1 = fig.add_subplot(gs[0, :])
-df_top = df[df['Call_Type'].isin(top_types)]
+df_top = df[df['Call_Type'].isin(top_types)].copy()
 monthly = df_top.groupby(['YearMonth', 'Call_Type']).size().unstack(fill_value=0)
 for t in top_types:
     if t not in monthly.columns:
@@ -53,7 +61,7 @@ for t in top_types:
 monthly = monthly[top_types].sort_index()
 months = monthly.index.tolist()
 
-if len(months) > 0:
+if len(months) > 1:
     x = range(len(months))
     arrays = [monthly[t].values.astype(float) for t in top_types]
     ax1.stackplot(x, *arrays, colors=[color_map[t] for t in top_types], alpha=0.8)
@@ -140,7 +148,9 @@ ax5.set_title('Weekly Trend by Call Type', fontsize=13, fontweight='bold', color
 
 n = len(top_types)
 for i, ct in enumerate(top_types):
-    sub = df_top[df_top['Call_Type'] == ct].set_index('Created').resample('W').size().reset_index(name='Count')
+    sub = df_top[df_top['Call_Type'] == ct].copy()
+    sub = sub.set_index('Created').resample('W').size().reset_index(name='Count')
+    sub = sub[sub['Count'] > 0]
     if len(sub) < 2:
         continue
     inset = ax5.inset_axes([0.18, 1 - (i + 1) / n + 0.02, 0.75, (1 / n) - 0.04])
@@ -153,12 +163,11 @@ for i, ct in enumerate(top_types):
         spine.set_color('#eeeeee')
     inset.text(-1, sub['Count'].mean(), ct[:22], fontsize=8, fontweight='bold',
                color=color_map[ct], ha='right', va='center')
-    inset.text(len(sub) - 1, sub['Count'].values[-1], f' {sub["Count"].values[-1]:,}',
-               fontsize=7, color='#666666', va='center')
+    last_val = sub['Count'].values[-1]
+    inset.text(len(sub) - 1, last_val, f' {last_val:,}', fontsize=7, color='#666666', va='center')
 
 # ── TITLE & LEGEND ──
 total = len(df)
-date_range = f"{df['Created'].min().strftime('%b %Y')} - {df['Created'].max().strftime('%b %Y')}"
 fig.suptitle(f'Contact Center Analytics Dashboard  |  {total:,} Calls  ({date_range})',
              fontsize=15, fontweight='bold', color='#1a1a1a', y=0.99)
 
